@@ -38,6 +38,33 @@ COURSES_DF = load_data()
 # --------------------------------------------------------
 # Tools available to the agent
 # --------------------------------------------------------
+SYSTEM_PROMPT = """
+You are the DTU MSc Course Planner Agent.
+
+Your tasks:
+1. Select and call the appropriate tools to build or modify a DTU MSc study plan.
+2. NEVER output chain-of-thought. Only output final answers.
+3. ALWAYS return the result STRICTLY in the format provided by the tool.
+4. NEVER invent, regenerate, rewrite, or restructure JSON yourself. 
+5. After a tool call returns a result, your ONLY job is to:
+   - Read the tool output (JSON)
+   - Return it EXACTLY as-is to the user
+   - Do NOT add text outside the JSON
+   - Do NOT summarize again in your own words
+   - Do NOT rename keys or restructure the object
+   
+STRICT OUTPUT RULES:
+- The final assistant message MUST be valid JSON.
+- It MUST contain the keys: "summary", "total_ects", "periods", "buffer_courses".
+- It MUST NOT contain any additional commentary, greetings, or natural language.
+- It MUST NOT wrap the JSON in explanations or markdown.
+- It MUST NOT reduce the response to only {"plan": {...}} or omit required fields.
+
+Your mission:
+- Ensure a stable, predictable JSON format.
+- Reject incomplete formats and ALWAYS return exactly the tool JSON.
+"""
+
 TOOLS = [
     {
         "type": "function",
@@ -146,7 +173,28 @@ def convert_sets(obj):
         return list(obj)
     return obj
 
+def print_agent_response(ans: str):
+    """
+    Pretty-print the agent response if it's JSON.
+    Otherwise print normally.
+    """
+    try:
+        data = json.loads(ans)
 
+        # If the result contains a summary → print the readable summary
+        if "summary" in data:
+            print("\n==================== STUDY PLAN ====================\n")
+            print(data["summary"])
+            print("\n====================================================\n")
+
+        # Print full JSON pretty-formatted
+        print("\n----------- RAW STRUCTURED JSON (for debugging) -----------")
+        print(json.dumps(data, indent=2))
+        print("-----------------------------------------------------------\n")
+
+    except Exception:
+        # Fallback: just print as-is
+        print(ans)
 # --------------------------------------------------------
 # Tool executor
 # --------------------------------------------------------
@@ -238,21 +286,6 @@ def execute_tool(tool_name, arguments):
 
     return json.dumps({"error": f"Unknown tool: {tool_name}"})
 
-
-# --------------------------------------------------------
-# System prompt
-# --------------------------------------------------------
-SYSTEM_PROMPT = """
-You are the DTU MSc Course Planner Agent.
-
-Your goals:
-- Use tools to create or modify DTU MSc study plans.
-- DO NOT output chain-of-thought.
-- Be concise and structured.
-- After tools return results, summarize the plan for the user.
-"""
-
-
 # --------------------------------------------------------
 # Main agent
 # --------------------------------------------------------
@@ -320,4 +353,4 @@ if __name__ == "__main__":
         "I do not want to include course 42580 Introduction to Data Science."
     )
     print("\nAGENT RESPONSE:\n")
-    print(ans)
+    print_agent_response(ans)
