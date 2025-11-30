@@ -28,6 +28,8 @@ SEASON_KEYWORDS = ["Autumn", "Spring", "January", "June", "July", "August"]
 SLOT_PATTERN = re.compile(r"\b[FE]\d+[A-Z]?\b", re.IGNORECASE)
 
 MANDATORY_COURSES = ["12105", "42500"]
+
+FORBIDDEN_COURSES = []
 # ==================================
 def normalize_schedule_value(val) -> str:
     """Turn a Schedule cell (str or list) into a single lowercase string."""
@@ -36,6 +38,12 @@ def normalize_schedule_value(val) -> str:
     else:
         text = str(val)
     return text.lower()
+
+def clean_title(title: str) -> str:
+    parts = title.split()
+    if len(parts) <= 1:
+        return title.strip().lower()
+    return " ".join(parts[1:]).strip().lower()
 
 def extract_seasons_and_slots(schedule) -> Tuple[Set[str], Set[str]]:
     """
@@ -83,6 +91,8 @@ def plan_msc_program(
     ects_target: float = 85.0,
     top_k: int = 200,
     alpha: float = 0.2,
+    mandatory_courses: List[str] = MANDATORY_COURSES,
+    forbidden_courses: List[str] = FORBIDDEN_COURSES,
 ) -> dict:
     """
     Retrieve relevant courses and build a 2-year MSc plan respecting:
@@ -91,6 +101,7 @@ def plan_msc_program(
         - ECTS caps per period
         - schedule slot non-overlap
         - NO duplicates (based on course title)
+        - EXCLUSION of forbidden courses (by code or title)
     """
 
     # ----------------------------
@@ -103,6 +114,26 @@ def plan_msc_program(
         mode="hybrid",
         alpha=alpha,
     ).copy()
+
+    # ==============================================================
+    # 🔥 EXCLUDE FORBIDDEN COURSES — by code OR by normalized title
+    # ==============================================================
+
+    # Clean all forbidden *titles* as keys
+    forbidden_title_keys = {clean_title(t) for t in forbidden_courses}
+
+    def is_forbidden(row):
+        return (
+            row["course_code"] in forbidden_courses
+            or clean_title(row["title"]) in forbidden_title_keys
+        )
+
+    before = len(candidates)
+    candidates = candidates[~candidates.apply(is_forbidden, axis=1)].copy()
+    after = len(candidates)
+
+    if before != after:
+        print(f"❌ Removed {before - after} forbidden courses from candidates.")
 
     # ----------------------------
     # Precompute season + slot + ECTS
@@ -127,25 +158,21 @@ def plan_msc_program(
             "season": p["season"].lower(),
             "max_ects": float(p["max_ects"]),
             "ects_used": 0.0,
-            "courses": [],         # store DataFrame indices
-            "taken_slots": set(),  # union of slot codes
+            "courses": [],
+            "taken_slots": set(),
         }
 
     total_ects = 0.0
-
-    # ----------------------------
-    # Tracking for duplicates (by title)
-    # ----------------------------
     assigned_titles = set()
 
     # =========================================================================
     # 3) INSERT MANDATORY COURSES FIRST
     # =========================================================================
-    mandatory_df = candidates[candidates["course_code"].isin(MANDATORY_COURSES)]
+    mandatory_df = candidates[candidates["course_code"].isin(mandatory_courses)]
 
     for idx, row in mandatory_df.iterrows():
 
-        title_key = row["title"].strip().lower()
+        title_key = clean_title(row["title"])
         if title_key in assigned_titles:
             continue
 
@@ -181,13 +208,13 @@ def plan_msc_program(
     # =========================================================================
     # 4) GREEDY FILL WITH REMAINING CANDIDATES
     # =========================================================================
-    non_mandatory = candidates[~candidates["course_code"].isin(MANDATORY_COURSES)]
+    non_mandatory = candidates[~candidates["course_code"].isin(mandatory_courses)]
 
     for idx, row in non_mandatory.iterrows():
 
-        title_key = row["title"].strip().lower()
+        title_key = clean_title(row["title"])
         if title_key in assigned_titles:
-            continue  # skip duplicates by title
+            continue
 
         course_ects = row["ects"]
         if course_ects <= 0:
@@ -256,7 +283,7 @@ if __name__ == "__main__":
     courses_df = load_data()
     plan = plan_msc_program(
         df=courses_df,
-        query="Data Science and Machine Learning",
+        query="Create an MSc plan specializing in robotics and data science.",
         ects_target=85.0,
         top_k=300,
         alpha=0.2,

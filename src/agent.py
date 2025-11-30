@@ -282,7 +282,6 @@ def ask_agent(user_message: str) -> str:
             args = json.loads(tool_call.function.arguments)
 
             print(f"\n[Executing tool: {name}]")
-            print("Messages before sending:", messages)
             print("Model responded with:", msg)
 
             result = execute_tool(name, args)
@@ -305,6 +304,6 @@ def ask_agent(user_message: str) -> str:
 # Run test
 # --------------------------------------------------------
 if __name__ == "__main__":
-    ans = ask_agent("Create an MSc plan specializing in robotics and data science.")
+    ans = ask_agent("Create an MSc plan specializing in robotics and data science. I do not want to include course 42580 Introduction to Data Science")
     print("\nAGENT RESPONSE:\n")
     print(ans)
