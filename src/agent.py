@@ -231,7 +231,7 @@ def ask_agent(user_message: str):
 
     while True:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="DeepSeek-R1",
             messages=messages,
             tools=TOOLS,
             tool_choice="auto"
@@ -264,5 +264,9 @@ def ask_agent(user_message: str):
 # Manual test
 # --------------------------------------------------------
 if __name__ == "__main__":
+    models = client.models.list()
+
+    for m in models.data:
+        print(m.id)
     answer = ask_agent("Create an MSc plan specializing in data science and robotics.")
     print("\nAGENT RESPONSE:\n", answer)
