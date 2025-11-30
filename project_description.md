@@ -79,5 +79,9 @@ dtype='object')
 
 
 Strategy:
-1. Filter out non-MSc courses
-2. Filter out courses not in Location
+- Filter out non-MSc courses --> Can not do this: miss out on many relevant courses (i.e. Intro to ML)
+1. Filter out courses not in Location
+2. Semesters: 
+    Option 1: Autumn (max 30 ECTS) -> January (5 ECTS) -> Spring (max 30 ECTS) -> June (5 ECTS) -> July (5 ECTS) -> August (5 ECTS) -> Autumn (max 30 ECTS) -> January (5 ECTS)
+    
+    Option 2: Spring (max 30 ECTS) -> June (5 ECTS) -> July (5 ECTS) -> August (5 ECTS) -> Autumn (max 30 ECTS) -> January (5 ECTS) -> Spring (max 30 ECTS)
