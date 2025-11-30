@@ -23,7 +23,7 @@ if not CAMPUSAI_API_KEY:
 
 client = OpenAI(
     api_key=CAMPUSAI_API_KEY,
-    base_url="https://campusai.compute.dtu.dk/api"
+    base_url="https://chat.campusai.compute.dtu.dk/api/v1"
 )
 
 # models = client.models.list()

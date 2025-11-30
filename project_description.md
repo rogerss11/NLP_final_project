@@ -63,6 +63,7 @@ Example of course in the DDBB:
     "learning_objectives": ["Perform calculations with vec ... cal problems"]
     }
 
+DF Columns:
 
 (['course_code', 'url', 'title', 'academic_year', 'learning_objectives',
   'Danish title', 'Language of instruction', 'Point( ECTS )',
