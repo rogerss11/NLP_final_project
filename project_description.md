@@ -76,3 +76,8 @@ Example of course in the DDBB:
   'External Institution', 'Offered as'],
 dtype='object')
 
+
+
+Strategy:
+1. Filter out non-MSc courses
+2. Filter out courses not in Location

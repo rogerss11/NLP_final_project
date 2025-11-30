@@ -9,6 +9,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sentence_transformers import SentenceTransformer
 import torch
 
+from dataloader import load_data
 # ---------------------- INITIALIZATION ----------------------
 # Initialize FastAPI app
 app = FastAPI()
@@ -34,43 +35,10 @@ client = OpenAI(
 #     print(m.id)
 
 # ---------------------- DATA LOADING AND EMBEDDING ----------------------
-# Load courses
-with jsonlines.open("dtu_courses.jsonl", "r") as f:
-    courses = {course["course_code"]: course for course in f}
-
-print("Loaded dtu_courses.jsonl with", len(courses), "courses. Starting embedding...")
-embed_path = "dtu_courses_embed.jsonl"
-
-if os.path.exists(embed_path):
-    print(f"Found embeddings file '{embed_path}', loading embeddings...")
-    with jsonlines.open(embed_path, "r") as ef:
-        for item in ef:
-            code = item.get("course_code")
-            emb_list = item.get("embedded_course")
-            if code in courses and emb_list is not None:
-                courses[code]["embedded_course"] = torch.tensor(emb_list, dtype=torch.float)
-    print("Loaded embeddings from disk.")
-else:
-    print("No embeddings file found — computing embeddings and saving to disk...")
-    total = len(courses)
-    bar_length = 40
-    with jsonlines.open(embed_path, "w") as ef:
-        for idx, course_code in enumerate(courses, start=1):
-            # sentence_transformers.encode may return a numpy array; convert to list then to torch tensor
-            emb = sentence_model.encode(json.dumps(courses[course_code]))
-            emb_list = emb.tolist() if hasattr(emb, "tolist") else list(emb)
-            courses[course_code]["embedded_course"] = torch.tensor(emb_list, dtype=torch.float)
-            # write minimal record to file (course_code + embedding)
-            ef.write({"course_code": course_code, "embedded_course": emb_list})
-            # simple CLI progress bar
-            progress = idx / total
-            filled = int(bar_length * progress)
-            bar = "#" * filled + "-" * (bar_length - filled)
-            print(f"\rEmbedding courses: |{bar}| {idx}/{total} ({progress*100:.1f}%)", end="", flush=True)
-    print("\nCourses and objectives have been embedded and saved.")
+df = load_data()
 
 # Helper function to search courses
-def course_search(query: str, top_k: int, mode: str, alpha=0.2):
+def search_relevant_courses(query: str, top_k: int, mode: str, alpha=0.2):
     if mode == "dense":
         alpha = 1.0
     elif mode == "sparse":

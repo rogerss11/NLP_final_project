@@ -1,7 +1,6 @@
 import json
 import pandas as pd
 from sentence_transformers import SentenceTransformer
-import jsonlines
 import os
 import sys
 
@@ -14,6 +13,7 @@ embedding_columns = [
     "Responsible",
     "Course co-responsible",
     "Department",
+    "Department involved",
 ]
 
 courses_path = "dtu_courses.jsonl"
@@ -66,7 +66,7 @@ def save_df_as_jsonl(df, path: str):
 
     print(f"Saved {len(df)} rows to {path}")
 
-def embed_courses(df: pd.DataFrame, embedding_columns: list[str]) -> pd.DataFrame:
+def embed_courses(df: pd.DataFrame, embedding_columns=embedding_columns) -> pd.DataFrame:
     sentence_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
 
     def row_to_text(row):
@@ -101,7 +101,7 @@ def embed_courses(df: pd.DataFrame, embedding_columns: list[str]) -> pd.DataFram
     df["embedded_course"] = embeddings
     return df
  
-def load_data(courses_path, embed_path: str) -> pd.DataFrame:
+def load_data(courses_path=courses_path, embed_path=embed_path) -> pd.DataFrame:
     """
     Load the DTU courses and embeddings into a DataFrame.
     If embeddings jsonl is not found: load jsonl file, compute embeddings,
