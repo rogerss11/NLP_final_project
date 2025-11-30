@@ -3,9 +3,12 @@ import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sentence_transformers import SentenceTransformer
 import torch
+import re
+from typing import List, Tuple, Set
 import json
 
-from dataloader import load_data
+from src.dataloader import load_data
+
 
 
 def search_relevant_courses(df: pd.DataFrame, query: str, top_k: int,
@@ -14,7 +17,11 @@ def search_relevant_courses(df: pd.DataFrame, query: str, top_k: int,
     Compute dense, sparse, and hybrid similarities between `query` and all rows in df,
     then return a NEW DataFrame with the top_k rows sorted by score.
 
-    Expects df to contain an 'embedded_course' column with stored embeddings (lists/arrays).
+    Returns:
+        A DataFrame containing all original columns PLUS:
+            - "score"
+            - "Point( ECTS )"
+            - "Schedule"
     """
 
     # ---- MODE HANDLING ----
@@ -24,14 +31,13 @@ def search_relevant_courses(df: pd.DataFrame, query: str, top_k: int,
         alpha = 0.0
 
     # -------------------------------------------------------------
-    # 1) Dense similarities (sentence-transformer cosine similarity)
+    # 1) Dense similarities
     # -------------------------------------------------------------
     sentence_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
     q_emb = sentence_model.encode(query.lower())
     q_emb = torch.tensor(q_emb, dtype=torch.float)
 
-    # Convert embedding column to torch tensors (safe even if already tensors)
     emb_matrix = df["embedded_course"].apply(
         lambda x: torch.tensor(x, dtype=torch.float)
     )
@@ -41,12 +47,11 @@ def search_relevant_courses(df: pd.DataFrame, query: str, top_k: int,
     )
 
     # -------------------------------------------------------------
-    # 2) Sparse similarities (TF-IDF cosine similarity)
+    # 2) Sparse similarities (TF-IDF)
     # -------------------------------------------------------------
-    # Build lightweight text representation excluding embeddings
     def row_to_text(row):
         data = row.to_dict()
-        data.pop("embedded_course", None)
+        data.pop("embedded_course", None)  # remove embedding
         return json.dumps(data)
 
     texts = df.apply(row_to_text, axis=1)
@@ -67,11 +72,11 @@ def search_relevant_courses(df: pd.DataFrame, query: str, top_k: int,
     # -------------------------------------------------------------
     result_df = df.copy()
     result_df["score"] = hybrid_scores
+
+    # Include ECTS and Schedule automatically because we keep all columns
     result_df = result_df.sort_values(by="score", ascending=False).head(top_k)
 
     return result_df.reset_index(drop=True)
-
-
 
 def keep_columns(column_names: list[str], df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -90,47 +95,65 @@ def filter_courses_by_keyword(df: pd.DataFrame, keyword: str, columns: list[str]
             mask |= df[col].astype(str).str.contains(keyword, case=False, na=False)
     return df[mask]
 
+
+def get_course_ects(row: pd.Series) -> float:
+    if "Point( ECTS )" not in row.index:
+        return 0.0
+    return float(str(row["Point( ECTS )"]).replace(",", "."))
+
 def add_ECTS(df: pd.DataFrame) -> pd.DataFrame:
     """
     Sum up ECTS for all the courses in the DataFrame.
     return total ECTS value.
     """
     if "Point( ECTS )" in df.columns:
+        df["Point( ECTS )"] = df["Point( ECTS )"].astype(str).str.replace(",", ".", regex=False).astype(float)
         total_ects = df["Point( ECTS )"].sum()
         print(f"Total ECTS for filtered courses: {total_ects}")
     else:
         print("Column 'Point( ECTS )' not found in DataFrame.")
+        total_ects = 0.0
     return total_ects
 
 if __name__ == "__main__":
+    pd.set_option('display.max_columns', None)
+    pd.set_option('display.width', 1500)
+    pd.set_option('display.max_colwidth', 30)
+    
     df = load_data()
-
-    print(df.columns)
     
     schedule_columns = [
         "course_code",
         "title",
-        "location",
+        "Location",
         "academic_year",
         "Point( ECTS )",
         "Schedule",
         "Date of examination",
         "Course type"]
-    
-    schedule_df = keep_columns(schedule_columns, df)
-    print(schedule_df.columns)
-    
+        
     print(f"Total courses: {len(df)}")
-    keyword = "E3"
-    filtered_df = filter_courses_by_keyword(df, keyword, ["Schedule"])
+    top_results = search_relevant_courses(
+        df=df,
+        query="machine learning",
+        top_k=10,
+        mode="hybrid",
+        alpha=0.2
+    )
+
+    print(top_results[["course_code", "title", "Point( ECTS )", "Schedule", "score"]])
+    
+    keyword = "Lyngby"
+    filtered_df = filter_courses_by_keyword(df, keyword, ["Location"])
     print(f"Courses containing '{keyword}': {len(filtered_df)}")
     
     top_results = search_relevant_courses(
     df=filtered_df,
-    query="reinforcement learning",
-    top_k=10,
+    query="machine learning",
+    top_k=30,
     mode="hybrid",
     alpha=0.2
 )
 
-    print(top_results[["course_code", "title", "score"]])
+    print(top_results[["course_code", "title", "Point( ECTS )", "Schedule", "score"]])
+    total_ects = add_ECTS(top_results)
