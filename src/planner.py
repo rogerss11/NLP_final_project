@@ -115,10 +115,6 @@ def plan_msc_program(
         alpha=alpha,
     ).copy()
 
-    # ==============================================================
-    # 🔥 EXCLUDE FORBIDDEN COURSES — by code OR by normalized title
-    # ==============================================================
-
     # Clean all forbidden *titles* as keys
     forbidden_title_keys = {clean_title(t) for t in forbidden_courses}
 
@@ -133,7 +129,7 @@ def plan_msc_program(
     after = len(candidates)
 
     if before != after:
-        print(f"❌ Removed {before - after} forbidden courses from candidates.")
+        print(f" - Removed {before - after} forbidden courses from candidates.")
 
     # ----------------------------
     # Precompute season + slot + ECTS

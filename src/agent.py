@@ -1,5 +1,5 @@
 # ================================================================
-# src/agent.py  —  DTU MSc Course Planner Agent (FINAL VERSION)
+# src/agent.py  —  DTU MSc Course Planner Agent (UPDATED VERSION)
 # ================================================================
 
 import os
@@ -34,7 +34,6 @@ client = OpenAI(
 # Load courses globally
 # --------------------------------------------------------
 COURSES_DF = load_data()
-
 
 # --------------------------------------------------------
 # Tools available to the agent
@@ -104,11 +103,12 @@ TOOLS = [
         },
     },
 
+    # ---------------- UPDATED TOOL SCHEMA ----------------
     {
         "type": "function",
         "function": {
             "name": "plan_msc_program",
-            "description": "Build a 2-year MSc plan matching schedule + ECTS constraints.",
+            "description": "Build a 2-year MSc plan matching schedule, ECTS constraints, mandatory and forbidden courses.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -116,6 +116,16 @@ TOOLS = [
                     "ects_target": {"type": "number", "default": 85.0},
                     "top_k": {"type": "integer", "default": 80},
                     "alpha": {"type": "number", "default": 0.2},
+                    "mandatory_courses": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "default": [],
+                    },
+                    "forbidden_courses": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "default": [],
+                    },
                 },
                 "required": ["query"],
             },
@@ -171,7 +181,7 @@ def execute_tool(tool_name, arguments):
         ects = add_ECTS(df)
         return json.dumps({"total_ects": ects})
 
-    # -------------- FIXED: Return human-readable summary --------------
+    # ---------------- UPDATED: pass forbidden courses ----------------
     if tool_name == "plan_msc_program":
         df = COURSES_DF.copy()
         plan = plan_msc_program(
@@ -180,6 +190,8 @@ def execute_tool(tool_name, arguments):
             ects_target=arguments.get("ects_target", 85.0),
             top_k=arguments.get("top_k", 80),
             alpha=arguments.get("alpha", 0.2),
+            mandatory_courses=arguments.get("mandatory_courses", []),
+            forbidden_courses=arguments.get("forbidden_courses", []),
         )
 
         # Slim down the data
@@ -296,7 +308,6 @@ def ask_agent(user_message: str) -> str:
             )
             continue
 
-        # Otherwise: final model answer
         return msg.content or ""
 
 
@@ -304,6 +315,9 @@ def ask_agent(user_message: str) -> str:
 # Run test
 # --------------------------------------------------------
 if __name__ == "__main__":
-    ans = ask_agent("Create an MSc plan specializing in robotics and data science. I do not want to include course 42580 Introduction to Data Science")
+    ans = ask_agent(
+        "Create an MSc plan specializing in robotics and data science. "
+        "I do not want to include course 42580 Introduction to Data Science."
+    )
     print("\nAGENT RESPONSE:\n")
     print(ans)

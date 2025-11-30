@@ -95,7 +95,6 @@ def filter_courses_by_keyword(df: pd.DataFrame, keyword: str, columns: list[str]
             mask |= df[col].astype(str).str.contains(keyword, case=False, na=False)
     return df[mask]
 
-
 def get_course_ects(row: pd.Series) -> float:
     if "Point( ECTS )" not in row.index:
         return 0.0
