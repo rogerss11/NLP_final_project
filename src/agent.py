@@ -273,12 +273,18 @@ def ask_agent(user_message: str) -> str:
 
         # TOOL CALL?
         if msg.tool_calls:
+            print("\n[MODEL DECISION]")
+            print("Tool selected:", msg.tool_calls[0].function.name)
+            print("Arguments:", msg.tool_calls[0].function.arguments)
             force_tool_once = False  # next turn: allow normal output
             tool_call = msg.tool_calls[0]
             name = tool_call.function.name
             args = json.loads(tool_call.function.arguments)
 
             print(f"\n[Executing tool: {name}]")
+            print("Messages before sending:", messages)
+            print("Model responded with:", msg)
+
             result = execute_tool(name, args)
 
             messages.append({"role": "assistant", "tool_calls": msg.tool_calls})

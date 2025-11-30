@@ -27,6 +27,7 @@ SEASON_KEYWORDS = ["Autumn", "Spring", "January", "June", "July", "August"]
 
 SLOT_PATTERN = re.compile(r"\b[FE]\d+[A-Z]?\b", re.IGNORECASE)
 
+MANDATORY_COURSES = ["12105", "42500"]
 # ==================================
 def normalize_schedule_value(val) -> str:
     """Turn a Schedule cell (str or list) into a single lowercase string."""
@@ -85,15 +86,15 @@ def plan_msc_program(
 ) -> dict:
     """
     Retrieve relevant courses and build a 2-year MSc plan respecting:
+        - mandatory courses (inserted first)
         - season schedule
         - ECTS caps per period
         - schedule slot non-overlap
-    
-    Includes a buffer list of other relevant courses for LLM adjustments.
+        - NO duplicates (based on course title)
     """
 
     # ----------------------------
-    # 1) Search relevant courses
+    # 1) Retrieve relevant courses
     # ----------------------------
     candidates = search_relevant_courses(
         df=df,
@@ -104,12 +105,9 @@ def plan_msc_program(
     ).copy()
 
     # ----------------------------
-    # Precompute ECTS + schedule parsing
+    # Precompute season + slot + ECTS
     # ----------------------------
-    seasons_list = []
-    slots_list = []
-    ects_list = []
-
+    seasons_list, slots_list, ects_list = [], [], []
     for _, row in candidates.iterrows():
         seasons, slots = extract_seasons_and_slots(row.get("Schedule", ""))
         seasons_list.append(seasons)
@@ -121,7 +119,7 @@ def plan_msc_program(
     candidates["ects"] = ects_list
 
     # ----------------------------
-    # 2) Prepare periods state
+    # 2) Periods initialization
     # ----------------------------
     periods = {}
     for p in PROGRAM_PATTERN:
@@ -129,16 +127,68 @@ def plan_msc_program(
             "season": p["season"].lower(),
             "max_ects": float(p["max_ects"]),
             "ects_used": 0.0,
-            "courses": [],         # store candidate indices
-            "taken_slots": set(),  # union of slot tokens
+            "courses": [],         # store DataFrame indices
+            "taken_slots": set(),  # union of slot codes
         }
 
     total_ects = 0.0
 
     # ----------------------------
-    # 3) Greedy assignment
+    # Tracking for duplicates (by title)
     # ----------------------------
-    for idx, row in candidates.iterrows():
+    assigned_titles = set()
+
+    # =========================================================================
+    # 3) INSERT MANDATORY COURSES FIRST
+    # =========================================================================
+    mandatory_df = candidates[candidates["course_code"].isin(MANDATORY_COURSES)]
+
+    for idx, row in mandatory_df.iterrows():
+
+        title_key = row["title"].strip().lower()
+        if title_key in assigned_titles:
+            continue
+
+        course_ects = row["ects"]
+        course_seasons = row["parsed_seasons"]
+        course_slots = row["parsed_slots"]
+
+        placed = False
+
+        for p in PROGRAM_PATTERN:
+            pid = p["id"]
+            period = periods[pid]
+
+            if period["season"] not in course_seasons:
+                continue
+            if period["ects_used"] + course_ects > period["max_ects"]:
+                continue
+            if schedules_overlap(period["taken_slots"], course_slots):
+                continue
+
+            period["courses"].append(idx)
+            period["ects_used"] += course_ects
+            period["taken_slots"] |= course_slots
+
+            assigned_titles.add(title_key)
+            total_ects += course_ects
+            placed = True
+            break
+
+        if not placed:
+            print(f"⚠️ WARNING: Mandatory course '{row['title']}' could not be placed!")
+
+    # =========================================================================
+    # 4) GREEDY FILL WITH REMAINING CANDIDATES
+    # =========================================================================
+    non_mandatory = candidates[~candidates["course_code"].isin(MANDATORY_COURSES)]
+
+    for idx, row in non_mandatory.iterrows():
+
+        title_key = row["title"].strip().lower()
+        if title_key in assigned_titles:
+            continue  # skip duplicates by title
+
         course_ects = row["ects"]
         if course_ects <= 0:
             continue
@@ -155,23 +205,18 @@ def plan_msc_program(
             pid = p["id"]
             period = periods[pid]
 
-            # Must match season
             if period["season"] not in course_seasons:
                 continue
-
-            # ECTS capacity
             if period["ects_used"] + course_ects > period["max_ects"]:
                 continue
-
-            # No schedule overlap
             if schedules_overlap(period["taken_slots"], course_slots):
                 continue
 
-            # Assign
             period["courses"].append(idx)
             period["ects_used"] += course_ects
             period["taken_slots"] |= course_slots
 
+            assigned_titles.add(title_key)
             total_ects += course_ects
             assigned = True
             break
@@ -180,36 +225,32 @@ def plan_msc_program(
             break
 
     # ----------------------------
-    # 4) Build DataFrames per period
+    # 5) Build DataFrames per period
     # ----------------------------
     selected_indices = set()
-
     for pid, period in periods.items():
         if period["courses"]:
             selected_indices |= set(period["courses"])
             period["courses_df"] = candidates.loc[period["courses"]].copy()
         else:
-            period["courses_df"] = candidates.iloc[0:0].copy()  # empty df
+            period["courses_df"] = candidates.iloc[0:0].copy()
 
     # ----------------------------
-    # 5) Buffer of ALL OTHER relevant courses
+    # 6) Buffer of all unused but relevant courses
     # ----------------------------
     buffer_df = candidates.loc[
         [i for i in candidates.index if i not in selected_indices]
     ].copy()
 
-    # Sort buffer by score (descending)
     buffer_df = buffer_df.sort_values(by="score", ascending=False).reset_index(drop=True)
 
-    # ----------------------------
-    # Final return
-    # ----------------------------
     return {
         "periods": periods,
         "total_ects": total_ects,
-        "retrieved_candidates": candidates,   # ALL ranked results
-        "buffer_courses": buffer_df,          # UNUSED but relevant
+        "retrieved_candidates": candidates,
+        "buffer_courses": buffer_df,
     }
+
 
 if __name__ == "__main__":
     courses_df = load_data()
