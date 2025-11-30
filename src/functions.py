@@ -92,7 +92,7 @@ def filter_courses_by_keyword(df: pd.DataFrame, keyword: str, columns: list[str]
     mask = pd.Series(False, index=df.index)
     for col in columns:
         if col in df.columns:
-            mask |= df[col].astype(str).str.contains(keyword, case=False, na=False)
+            mask |= df[col].astype(str).str.contains(keyword, case=False, na=False, regex=False)
     return df[mask]
 
 def get_course_ects(row: pd.Series) -> float:

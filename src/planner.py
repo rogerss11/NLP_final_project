@@ -32,25 +32,17 @@ MANDATORY_COURSES = ["12105", "42500"]
 FORBIDDEN_COURSES = []
 # ==================================
 def normalize_schedule_value(val) -> str:
-    """Turn a Schedule cell (str or list) into a single lowercase string."""
     if isinstance(val, list):
         text = " ".join(map(str, val))
     else:
         text = str(val)
     return text.lower()
 
-def clean_title(title: str) -> str:
-    parts = title.split()
-    if len(parts) <= 1:
-        return title.strip().lower()
-    return " ".join(parts[1:]).strip().lower()
+def trim_title(title: str) -> str:
+    """Remove the first 6 characters (course code prefix)."""
+    return title[6:].strip().lower() if len(title) > 6 else title.lower()
 
 def extract_seasons_and_slots(schedule) -> Tuple[Set[str], Set[str]]:
-    """
-    From a Schedule cell, extract:
-      - seasons: set like {"autumn", "spring"}
-      - slots: set like {"f1a", "f2"}
-    """
     text = normalize_schedule_value(schedule)
 
     seasons = {
@@ -64,27 +56,43 @@ def extract_seasons_and_slots(schedule) -> Tuple[Set[str], Set[str]]:
     return seasons, slots
 
 def schedules_overlap(slots_a: Set[str], slots_b: Set[str]) -> bool:
-    """Return True if two courses share any time-slot token."""
     return len(slots_a & slots_b) > 0
 
 def print_plan(plan: dict):
-    """Utility to print a planned MSc program."""
     print("Total planned ECTS:", plan["total_ects"])
-
     for pid in PROGRAM_PATTERN:
         pid = pid["id"]
         period = plan["periods"][pid]
         print("\n=== Period:", pid, "| season:", period["season"], "===")
         print("ECTS used:", period["ects_used"], "/", period["max_ects"])
-
         df_p = period["courses_df"]
         if df_p.empty:
             print("No courses assigned.")
         else:
-            print(df_p[["course_code", "title", "Point( ECTS )", "Schedule", "score"]]
-                  )
-            
+            print(df_p[["course_code", "title", "Point( ECTS )", "Schedule", "score"]])
+
+
 # ==================================
+def title_seen_before(trimmed_title: str, assigned_titles: Set[str], df: pd.DataFrame) -> bool:
+    """
+    Use your keyword search logic to find duplicates.
+    trimmed_title = title without first 6 characters.
+    """
+    if not trimmed_title:
+        return False
+
+    # Search all courses whose title contains this trimmed part
+    dup_df = filter_courses_by_keyword(df, trimmed_title, ["title"])
+
+    # Check if any already-assigned course title is present in dup_df
+    for t in assigned_titles:
+        matches = dup_df[dup_df["trimmed_title"] == t]
+        if len(matches) > 0:
+            return True
+
+    return False
+
+
 def plan_msc_program(
     df: pd.DataFrame,
     query: str,
@@ -115,38 +123,39 @@ def plan_msc_program(
         alpha=alpha,
     ).copy()
 
-    # Clean all forbidden *titles* as keys
-    forbidden_title_keys = {clean_title(t) for t in forbidden_courses}
+    # Remove forbidden courses by code or title substring
+    forb_keys = {f.lower() for f in forbidden_courses}
 
     def is_forbidden(row):
+        title_lower = row["title"].lower()
         return (
             row["course_code"] in forbidden_courses
-            or clean_title(row["title"]) in forbidden_title_keys
+            or any(k in title_lower for k in forb_keys)
         )
 
     before = len(candidates)
     candidates = candidates[~candidates.apply(is_forbidden, axis=1)].copy()
     after = len(candidates)
-
     if before != after:
         print(f" - Removed {before - after} forbidden courses from candidates.")
 
-    # ----------------------------
-    # Precompute season + slot + ECTS
-    # ----------------------------
-    seasons_list, slots_list, ects_list = [], [], []
+    # Precompute seasons, slots, ECTS, and trimmed titles
+    seasons_list, slots_list, ects_list, trimmed_titles = [], [], [], []
+
     for _, row in candidates.iterrows():
         seasons, slots = extract_seasons_and_slots(row.get("Schedule", ""))
         seasons_list.append(seasons)
         slots_list.append(slots)
         ects_list.append(get_course_ects(row))
+        trimmed_titles.append(trim_title(row["title"]))
 
     candidates["parsed_seasons"] = seasons_list
     candidates["parsed_slots"] = slots_list
     candidates["ects"] = ects_list
+    candidates["trimmed_title"] = trimmed_titles
 
     # ----------------------------
-    # 2) Periods initialization
+    # 2) Period initialization
     # ----------------------------
     periods = {}
     for p in PROGRAM_PATTERN:
@@ -159,17 +168,17 @@ def plan_msc_program(
         }
 
     total_ects = 0.0
-    assigned_titles = set()
+    assigned_titles = set()  # store trimmed titles only
 
     # =========================================================================
-    # 3) INSERT MANDATORY COURSES FIRST
+    # 3) Insert Mandatory Courses
     # =========================================================================
     mandatory_df = candidates[candidates["course_code"].isin(mandatory_courses)]
 
     for idx, row in mandatory_df.iterrows():
 
-        title_key = clean_title(row["title"])
-        if title_key in assigned_titles:
+        trimmed = row["trimmed_title"]
+        if trimmed in assigned_titles:
             continue
 
         course_ects = row["ects"]
@@ -193,7 +202,7 @@ def plan_msc_program(
             period["ects_used"] += course_ects
             period["taken_slots"] |= course_slots
 
-            assigned_titles.add(title_key)
+            assigned_titles.add(trimmed)
             total_ects += course_ects
             placed = True
             break
@@ -202,14 +211,14 @@ def plan_msc_program(
             print(f"⚠️ WARNING: Mandatory course '{row['title']}' could not be placed!")
 
     # =========================================================================
-    # 4) GREEDY FILL WITH REMAINING CANDIDATES
+    # 4) Greedy Fill with Remaining Courses
     # =========================================================================
     non_mandatory = candidates[~candidates["course_code"].isin(mandatory_courses)]
 
     for idx, row in non_mandatory.iterrows():
 
-        title_key = clean_title(row["title"])
-        if title_key in assigned_titles:
+        trimmed = row["trimmed_title"]
+        if title_seen_before(trimmed, assigned_titles, candidates):
             continue
 
         course_ects = row["ects"]
@@ -218,12 +227,10 @@ def plan_msc_program(
 
         course_seasons = row["parsed_seasons"]
         course_slots = row["parsed_slots"]
-
         if not course_seasons:
             continue
 
         assigned = False
-
         for p in PROGRAM_PATTERN:
             pid = p["id"]
             period = periods[pid]
@@ -239,7 +246,7 @@ def plan_msc_program(
             period["ects_used"] += course_ects
             period["taken_slots"] |= course_slots
 
-            assigned_titles.add(title_key)
+            assigned_titles.add(trimmed)
             total_ects += course_ects
             assigned = True
             break
@@ -259,7 +266,7 @@ def plan_msc_program(
             period["courses_df"] = candidates.iloc[0:0].copy()
 
     # ----------------------------
-    # 6) Buffer of all unused but relevant courses
+    # 6) Buffer of unused but relevant courses
     # ----------------------------
     buffer_df = candidates.loc[
         [i for i in candidates.index if i not in selected_indices]
@@ -286,7 +293,6 @@ if __name__ == "__main__":
     )
 
     print("Total planned ECTS:", plan["total_ects"])
-    
     print_plan(plan)
     print("\nBuffer of other relevant courses:")
     buffer_df = plan["buffer_courses"]
