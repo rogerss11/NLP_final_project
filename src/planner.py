@@ -318,7 +318,7 @@ def plan_msc_program(
     ].copy()
 
     buffer_df = buffer_df.sort_values(by="score", ascending=False).reset_index(drop=True)
-    buffer_df = buffer_df.head(10)
+    buffer_df = buffer_df.head(15)
 
     return {
         "periods": periods,

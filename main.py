@@ -1,3 +1,4 @@
+import json
 from fastapi import FastAPI, Query
 from typing import Optional
 from src.agent import (
@@ -12,17 +13,22 @@ app = FastAPI(
     description="API wrapper around the DTU MSc planning agent"
 )
 
+def prettify(plan_text: str):
+    # Split into lines for readability
+    return plan_text.split("\n")
 
 # ---------------------- ENDPOINTS ----------------------
 @app.get("/v1/build_plan")
 async def build_plan(
     query: str = Query(..., description="Keywords describing user's interests"),
     user_request: str = Query(..., description="User modification request for the plan, any courses that you dont like, etc."),
-    ects_target: float = Query(85.0, description="ECTS target for initial plan"),
     forbidden: Optional[str] = Query(None, description="Comma-separated list of course IDs to exclude"),
+    mandatory: Optional[str] = Query(None, description="Comma-separated list of mandatory course IDs"),
 ):
     """
-    Build initial plan → refine with LLM → return final plan.
+    Ask an AI agent to build a MSc study plan based on user query and preferences.
+    An LLM will then oversee the initial plan and make adjustments based on the user request.
+    [Be patient - this may take a bit of time to process :) ]
     """
 
     # Parse forbidden list
@@ -30,11 +36,17 @@ async def build_plan(
     if forbidden:
         forbidden_list = [c.strip() for c in forbidden.split(",") if c.strip()]
 
+    # Parse mandatory list
+    mandatory_list = []
+    if mandatory:
+        mandatory_list = [c.strip() for c in mandatory.split(",") if c.strip()]
+        
     # 1. Build initial plan
     initial_plan = build_initial_plan(
         df=COURSES_DF,
         query=query,
-        ects_target=ects_target,
+        ects_target=85,
+        mandatory=mandatory_list,
         forbidden=forbidden_list,
     )
 
@@ -46,8 +58,8 @@ async def build_plan(
 
     # API returns plain text
     return {
-        "initial_plan": initial_plan,
-        "refined_plan": refined,
+        "refined_plan": prettify(refined),
+        "initial_plan": prettify(initial_plan)
     }
 
 
